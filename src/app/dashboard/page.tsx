@@ -1,19 +1,50 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { db } from '@/lib/firebase'
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore'
+import { auth, db } from '@/lib/firebase'
+import { collection, query, orderBy, onSnapshot, doc } from 'firebase/firestore'
+import { onAuthStateChanged } from 'firebase/auth'
 import Navbar from '@/components/Navbar'
 import FileUpload from '@/components/FileUpload'
 import FileCard from '@/components/FileCard'
+import StorageMeter from '@/components/StorageMeter'
+import { useRouter } from 'next/navigation'
 
 export default function Dashboard() {
     const [books, setBooks] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
+    const [user, setUser] = useState<any>(null)
+    const [userData, setUserData] = useState<any>(null)
+    const router = useRouter()
 
     useEffect(() => {
-        const q = query(collection(db, 'books'), orderBy('created_at', 'desc'))
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+        // Escuchar cambios en la autenticación
+        const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+            if (!currentUser) {
+                router.push('/login')
+                return
+            }
+            setUser(currentUser)
+        })
+
+        return () => unsubscribeAuth()
+    }, [router])
+
+    useEffect(() => {
+        if (!user) return
+
+        // Escuchar cambios en el documento del usuario (para storage usage)
+        const userUnsubscribe = onSnapshot(doc(db, 'users', user.uid), (doc) => {
+            setUserData(doc.data())
+        })
+
+        // Obtener libros de la subcolección del usuario
+        const q = query(
+            collection(db, 'users', user.uid, 'books'),
+            orderBy('created_at', 'desc')
+        )
+
+        const booksUnsubscribe = onSnapshot(q, (snapshot) => {
             const booksData = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
@@ -25,16 +56,29 @@ export default function Dashboard() {
             setLoading(false)
         })
 
-        return () => unsubscribe()
-    }, [])
+        return () => {
+            userUnsubscribe()
+            booksUnsubscribe()
+        }
+    }, [user])
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
             <Navbar />
 
             <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-                <div className="mb-8 flex items-center justify-between">
-                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Your Library</h1>
+                <div className="mb-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Your Library</h1>
+                        {userData && (
+                            <div className="mt-2">
+                                <StorageMeter
+                                    usage={userData.storage_usage || 0}
+                                    limit={userData.storage_limit || 209715200}
+                                />
+                            </div>
+                        )}
+                    </div>
                     <FileUpload />
                 </div>
 

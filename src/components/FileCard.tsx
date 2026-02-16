@@ -3,12 +3,13 @@
 import { FileText, Book, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import { db, storage } from '@/lib/firebase'
-import { ref, deleteObject } from 'firebase/storage'
-import { doc, deleteDoc } from 'firebase/firestore'
+import { ref, deleteObject, getMetadata } from 'firebase/storage'
+import { doc, deleteDoc, updateDoc, increment } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
 
 interface BookProps {
     id: string
+    user_id: string
     title: string
     file_url: string
     file_type: 'pdf' | 'epub'
@@ -26,14 +27,32 @@ export default function FileCard({ book }: { book: BookProps }) {
         if (!confirm('Are you sure you want to delete this book?')) return
 
         try {
-            // 1. Delete from Firebase Storage
             const storageRef = ref(storage, book.file_url)
+
+            // 1. Get file size for storage usage update
+            let fileSize = 0
+            try {
+                const metadata = await getMetadata(storageRef)
+                fileSize = metadata.size
+            } catch (err) {
+                console.warn('Could not get file metadata:', err)
+            }
+
+            // 2. Delete from Firebase Storage
             await deleteObject(storageRef).catch(err => {
                 console.warn('Storage delete fail (maybe file not found):', err)
             })
 
-            // 2. Delete from Firestore
-            await deleteDoc(doc(db, 'books', book.id))
+            // 3. Delete from Firestore (user's subcollection)
+            await deleteDoc(doc(db, 'users', book.user_id, 'books', book.id))
+
+            // 4. Decrement storage usage
+            if (fileSize > 0) {
+                const userRef = doc(db, 'users', book.user_id)
+                await updateDoc(userRef, {
+                    storage_usage: increment(-fileSize)
+                })
+            }
 
             router.refresh()
         } catch (error) {

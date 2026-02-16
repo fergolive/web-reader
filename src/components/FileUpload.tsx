@@ -3,9 +3,10 @@
 import { useState } from 'react'
 import { auth, db, storage } from '@/lib/firebase'
 import { ref, uploadBytesResumable } from 'firebase/storage'
-import { collection, addDoc } from 'firebase/firestore'
+import { collection, addDoc, doc, getDoc, updateDoc, increment } from 'firebase/firestore'
 import { Upload, X, FileText, Book, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { formatBytes } from '@/lib/utils'
 
 export default function FileUpload() {
     const [isUploading, setIsUploading] = useState(false)
@@ -23,17 +24,35 @@ export default function FileUpload() {
             return
         }
 
+        // Verificar que el usuario esté autenticado
+        const user = auth.currentUser
+        if (!user) {
+            setError('Debes iniciar sesión para subir archivos')
+            return
+        }
+
         setIsUploading(true)
         setUploadProgress(0)
         setError(null)
 
         try {
-            const user = auth.currentUser
-            const userId = user ? user.uid : 'public-uploads'
+            // Verificar límites de almacenamiento
+            const userRef = doc(db, 'users', user.uid)
+            const userSnap = await getDoc(userRef)
+
+            if (userSnap.exists()) {
+                const userData = userSnap.data()
+                const currentUsage = userData.storage_usage || 0
+                const storageLimit = userData.storage_limit || 209715200 // 200 MB default
+
+                if (currentUsage + file.size > storageLimit) {
+                    throw new Error(`Storage limit exceeded. You have ${formatBytes(storageLimit - currentUsage)} remaining.`)
+                }
+            }
 
             const fileExt = file.name.split('.').pop()
             const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`
-            const filePath = `books/${userId}/${fileName}`
+            const filePath = `books/${user.uid}/${fileName}`
 
             // Upload file to Firebase Storage with progress tracking
             const storageRef = ref(storage, filePath)
@@ -56,8 +75,13 @@ export default function FileUpload() {
                 )
             })
 
-            // Insert metadata to Firestore
-            await addDoc(collection(db, 'books'), {
+            // Increment storage usage
+            await updateDoc(userRef, {
+                storage_usage: increment(file.size)
+            })
+
+            // Insert metadata to Firestore in user's books subcollection
+            await addDoc(collection(db, 'users', user.uid, 'books'), {
                 user_id: user ? user.uid : null,
                 title: file.name.replace(/\.[^/.]+$/, ""),
                 file_url: filePath,

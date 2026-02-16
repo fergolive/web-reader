@@ -1,20 +1,56 @@
 'use client'
 
-import { auth } from '@/lib/firebase'
+import { useState } from 'react'
+import { auth, db } from '@/lib/firebase'
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
-import { LogIn } from 'lucide-react'
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { LogIn, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
+    const [isLoading, setIsLoading] = useState(false)
     const router = useRouter()
 
     const handleLogin = async () => {
         const provider = new GoogleAuthProvider()
+        setIsLoading(true)
+
         try {
-            await signInWithPopup(auth, provider)
+            const result = await signInWithPopup(auth, provider)
+            const user = result.user
+
+            // Verificar si el usuario ya existe en Firestore
+            const userRef = doc(db, 'users', user.uid)
+            const userSnap = await getDoc(userRef)
+
+            if (!userSnap.exists()) {
+                // Crear nuevo usuario en Firestore
+                await setDoc(userRef, {
+                    uid: user.uid,
+                    email: user.email,
+                    displayName: user.displayName,
+                    photoURL: user.photoURL,
+                    createdAt: serverTimestamp(),
+                    lastLogin: serverTimestamp(),
+                    storage_usage: 0,
+                    storage_limit: 209715200 // 200 MB
+                })
+                console.log('✅ Nuevo usuario registrado:', user.email)
+            } else {
+                // Actualizar última fecha de login y asegurar campos de storage
+                const userData = userSnap.data()
+                await setDoc(userRef, {
+                    lastLogin: serverTimestamp(),
+                    storage_usage: userData.storage_usage ?? 0,
+                    storage_limit: userData.storage_limit ?? 209715200
+                }, { merge: true })
+                console.log('✅ Usuario existente, última sesión actualizada')
+            }
+
             router.push('/dashboard')
         } catch (error) {
             console.error('Error signing in with Google:', error)
+            setIsLoading(false)
         }
     }
 

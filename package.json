@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@radix-ui/react-slot": "^1.2.4",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "firebase": "^12.9.0",
     "lucide-react": "^0.563.0",
@@ -18,7 +20,8 @@
     "react-dom": "19.2.3",
     "react-pdf": "^10.3.0",
     "react-reader": "^2.0.15",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.1",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
